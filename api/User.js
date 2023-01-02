@@ -9,16 +9,25 @@ const router = express.Router();
     res.send("Hello world");
 }); */
 
-// mongodb user model
-
 // email handler
 const nodemailer = require('nodemailer');
 
 // password handler
 const bcrypt = require('bcrypt');
+
+// mongodb user model
 const User = require('../models/User');
 
-router.get('/:name/send', async (req, res) => {
+function findEmail(name, surname) {
+  User.find({ name, surname }, 'name surname email', (err, users) => {
+    if (err) return handleError(err);
+    const result = users.find((item) => item.name === name && item.surname === surname);
+    console.log(result.email);
+    return result.email;
+  });
+}
+
+router.get('/:name/:surname/send', async (req, res) => {
   // grab the joke from the API
   const response = await fetch('https://api.chucknorris.io/jokes/random');
   const joke = await response.json();
@@ -35,9 +44,11 @@ router.get('/:name/send', async (req, res) => {
     },
   });
 
+  console.log(findEmail(req.params.name, req.params.surname));
+
   const MailOptions = {
     from: 'petra.crmaric.pc@gmail.com',
-    to: 'petra.crmaric.pc@gmail.com',
+    to: findEmail(req.params.name, req.params.surname),
     subject: 'Chuck Norris Joke',
     text: joke.value,
   };
@@ -99,7 +110,6 @@ router.post('/signup', (req, res) => {
             surname,
             email,
             password: hashedPassword,
-            loggedIn: false,
           });
 
           newUser.save().then((result) => {
@@ -160,7 +170,6 @@ router.post('/signin', (req, res) => {
                   message: 'Signin successful',
                   data,
                 });
-                User.loggedIn = true;
               } else {
                 res.json({
                   status: 'FAILED',
