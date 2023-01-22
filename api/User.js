@@ -2,6 +2,7 @@
 /* eslint-disable no-unused-vars */
 /* eslint-disable linebreak-style */
 const express = require('express');
+const jwt = require('jsonwebtoken');
 
 const router = express.Router();
 
@@ -18,16 +19,21 @@ const bcrypt = require('bcrypt');
 // mongodb user model
 const User = require('../models/User');
 
-function findEmail(name, surname) {
+async function findEmail(name, surname) {
   User.find({ name, surname }, 'name surname email', (err, users) => {
     if (err) return handleError(err);
     const result = users.find((item) => item.name === name && item.surname === surname);
-    console.log(result.email);
     return result.email;
   });
 }
 
-router.get('/:name/:surname/send', async (req, res) => {
+const auth = require('../middleware/auth');
+
+router.post('/welcome', auth, (req, res) => {
+  res.status(200).send('Welcome 🙌 ');
+});
+
+router.get('/:name/:surname/send', auth, async (req, res) => {
   // grab the joke from the API
   const response = await fetch('https://api.chucknorris.io/jokes/random');
   const joke = await response.json();
@@ -44,11 +50,9 @@ router.get('/:name/:surname/send', async (req, res) => {
     },
   });
 
-  console.log(findEmail(req.params.name, req.params.surname));
-
   const MailOptions = {
     from: 'petra.crmaric.pc@gmail.com',
-    to: findEmail(req.params.name, req.params.surname),
+    to: await findEmail(req.params.name, req.params.surname),
     subject: 'Chuck Norris Joke',
     text: joke.value,
   };
@@ -60,6 +64,88 @@ router.get('/:name/:surname/send', async (req, res) => {
       console.log('email sent');
     }
   });
+});
+
+// register
+router.post('/register', async (req, res) => {
+  try {
+    const {
+      name, surname, email, password,
+    } = req.body;
+
+    // Validate user input
+    if (!(email && password && name && surname)) {
+      res.status(400).send('All input is required');
+    }
+
+    // check if user already exist
+    const oldUser = await User.findOne({ email });
+
+    if (oldUser) {
+      return res.status(409).send('User Already Exist. Please Login');
+    }
+
+    // Encrypt user password
+    encryptedPassword = await bcrypt.hash(password, 10);
+
+    // Create user in our database
+    const user = await User.create({
+      name,
+      surname,
+      email: email.toLowerCase(),
+      password: encryptedPassword,
+    });
+
+    // Create token
+    const token = jwt.sign(
+      { user_id: user._id, email },
+      process.env.TOKEN_KEY,
+      {
+        expiresIn: '2h',
+      },
+    );
+    // save user token
+    user.token = token;
+
+    // return new user
+    res.status(201).json(user);
+  } catch (err) {
+    console.log(err);
+  }
+});
+
+router.post('/login', async (req, res) => {
+  try {
+    // Get user input
+    const { email, password } = req.body;
+
+    // Validate user input
+    if (!(email && password)) {
+      res.status(400).send('All input is required');
+    }
+    // Validate if user exist in our database
+    const user = await User.findOne({ email });
+
+    if (user && (await bcrypt.compare(password, user.password))) {
+      // Create token
+      const token = jwt.sign(
+        { user_id: user._id, email },
+        process.env.TOKEN_KEY,
+        {
+          expiresIn: '2h',
+        },
+      );
+
+      // save user token
+      user.token = token;
+
+      // user
+      res.status(200).json(user);
+    }
+    res.status(400).send('Invalid Credentials');
+  } catch (err) {
+    console.log(err);
+  }
 });
 
 // signup
